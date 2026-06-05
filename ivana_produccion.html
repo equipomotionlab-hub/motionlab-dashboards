@@ -565,17 +565,34 @@ async function sbFetch(tipo, clave) {
 async function sbSave(tipo, clave, datos) {
   _cache[EMPLEADO+'|'+tipo+'|'+clave] = datos;
   try {
-    await fetch(`${SB_URL}/rest/v1/ml_registros`, {
-      method: 'POST',
-      headers: {
-        'apikey': SB_KEY,
-        'Authorization': 'Bearer '+SB_KEY,
-        'Content-Type': 'application/json',
-        'Prefer': 'resolution=merge-duplicates,return=minimal',
-        'x-upsert': 'true'
-      },
-      body: JSON.stringify({ empleado: EMPLEADO, tipo, clave, datos })
-    });
+    // First try to update existing row
+    const patchRes = await fetch(
+      `${SB_URL}/rest/v1/ml_registros?empleado=eq.${EMPLEADO}&tipo=eq.${tipo}&clave=eq.${encodeURIComponent(clave)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'apikey': SB_KEY,
+          'Authorization': 'Bearer '+SB_KEY,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify({ datos })
+      }
+    );
+    const patched = await patchRes.json();
+    // If no rows updated, insert new row
+    if (!patched || patched.length === 0) {
+      await fetch(`${SB_URL}/rest/v1/ml_registros`, {
+        method: 'POST',
+        headers: {
+          'apikey': SB_KEY,
+          'Authorization': 'Bearer '+SB_KEY,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify({ empleado: EMPLEADO, tipo, clave, datos })
+      });
+    }
   } catch(e) {
     console.warn('sbSave error:', tipo, clave, e);
   }

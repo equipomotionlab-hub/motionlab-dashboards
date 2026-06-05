@@ -877,7 +877,7 @@ const COUNTERS = {
 
 // ---- SUPABASE CONFIG ----
 const SB_URL = 'https://jqynoldeagvqrlkvzwzg.supabase.co';
-const SB_KEY = 'sb_publishable_Isl7j3oUA69xKI2IWl1mdA_Sm01wG3B';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpxeW5vbGRlYWd2cXJsa3Z6d3pnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MTgwODQsImV4cCI6MjA5NjA5NDA4NH0.V2arQGN8KF1StYZZkd42GC-T6LuTzmcN36Ni5JazW-I';
 const EMPLEADO = 'annarella';
 
 // Cache local para velocidad
@@ -908,18 +908,39 @@ async function sbFetch(tipo, clave) {
 }
 
 async function sbSave(tipo, clave, datos) {
-  const cacheKey = EMPLEADO+'|'+tipo+'|'+clave;
-  _cache[cacheKey] = datos;
-  await fetch(`${SB_URL}/rest/v1/ml_registros`, {
-    method: 'POST',
-    headers: {
-      'apikey': SB_KEY,
-      'Authorization': 'Bearer '+SB_KEY,
-      'Content-Type': 'application/json',
-      'Prefer': 'resolution=merge-duplicates'
-    },
-    body: JSON.stringify({ empleado: EMPLEADO, tipo, clave, datos })
-  });
+  _cache[EMPLEADO+'|'+tipo+'|'+clave] = datos;
+  try {
+    // First try to update existing row
+    const patchRes = await fetch(
+      `${SB_URL}/rest/v1/ml_registros?empleado=eq.${EMPLEADO}&tipo=eq.${tipo}&clave=eq.${encodeURIComponent(clave)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'apikey': SB_KEY,
+          'Authorization': 'Bearer '+SB_KEY,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify({ datos })
+      }
+    );
+    const patched = await patchRes.json();
+    // If no rows updated, insert new row
+    if (!patched || patched.length === 0) {
+      await fetch(`${SB_URL}/rest/v1/ml_registros`, {
+        method: 'POST',
+        headers: {
+          'apikey': SB_KEY,
+          'Authorization': 'Bearer '+SB_KEY,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify({ empleado: EMPLEADO, tipo, clave, datos })
+      });
+    }
+  } catch(e) {
+    console.warn('sbSave error:', tipo, clave, e);
+  }
 }
 
 function loadData(type) {
@@ -1380,8 +1401,12 @@ function jumpToDay(d) {
 
 updateDateLabel();
 (async () => {
-  await preloadAll();
-  await preloadCalMonth(calCur.y, calCur.m);
+  try {
+    await preloadAll();
+    await preloadCalMonth(calCur.y, calCur.m);
+  } catch(e) {
+    console.warn('preload error:', e);
+  }
   loadAll();
   updateSummary();
   renderCal();
